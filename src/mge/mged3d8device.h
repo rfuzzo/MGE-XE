@@ -1,12 +1,13 @@
 #pragma once
 
-#include "proxydx/d3d8device.h"
+//#include "proxydx/d3d8device.h"
+#include "../../../source/d3d8to9.hpp"
 
 
 
-class MGEProxyDevice : public ProxyDevice {
+class MGEProxyDevice : public Direct3DDevice8 {
 public:
-    MGEProxyDevice(IDirect3DDevice9* real, ProxyD3D* d3d);
+    MGEProxyDevice(IDirect3DDevice9* real, Direct3D8* d3d, bool EnableZBufferDiscarding);
     ULONG _stdcall Release(void);
 
     HRESULT _stdcall Present(const RECT* a, const RECT* b, HWND c, const RGNDATA* d);

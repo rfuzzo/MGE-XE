@@ -1,7 +1,5 @@
 
 #include "mged3d8device.h"
-#include "proxydx/d3d8texture.h"
-#include "proxydx/d3d8surface.h"
 
 #include <algorithm>
 #include "mgeversion.h"
@@ -9,7 +7,9 @@
 #include "distantland.h"
 #include "mwbridge.h"
 #include "statusoverlay.h"
+#ifndef MGE_RTX
 #include "userhud.h"
+#endif // MGE_RTX
 #include "videobackground.h"
 
 static int sceneCount;
@@ -39,7 +39,7 @@ static float calcFPS();
 
 
 
-MGEProxyDevice::MGEProxyDevice(IDirect3DDevice9* real, ProxyD3D* d3d) : ProxyDevice(real, d3d) {
+MGEProxyDevice::MGEProxyDevice(IDirect3DDevice9* real, Direct3D8* d3d, bool EnableZBufferDiscarding) : Direct3DDevice8(d3d, real, EnableZBufferDiscarding) {
     // Initialize state here, as the device is released and recreated on fullscreen Alt-Tab
     sceneCount = -1;
     rendertargetNormal = true;
@@ -81,11 +81,11 @@ MGEProxyDevice::MGEProxyDevice(IDirect3DDevice9* real, ProxyD3D* d3d) : ProxyDev
     lightrs.active.clear();
 
     // Store active device in distant land, occurs on startup and after fullscreen alt-tab
-    DistantLand::device = realDevice;
+    DistantLand::device = ProxyInterface;
 
     // Patch splash screen minor issues
     D3DVIEWPORT9 vp;
-    realDevice->GetViewport(&vp);
+    ProxyInterface->GetViewport(&vp);
     MWBridge::get()->patchSplashScreen(vp.Width, vp.Height);
 }
 
@@ -103,7 +103,9 @@ HRESULT _stdcall MGEProxyDevice::Present(const RECT* a, const RECT* b, HWND c, c
         // Disable MW screenshot function to allow MGE to use the same key
         mwBridge->disableScreenshotFunc();
         // Mark water material to allow MGEProxyDevice to detect it
+#ifndef MGE_RTX
         mwBridge->markWaterNode(99999.0f);
+#endif // !MGE_RTX
     }
 
     if (mwBridge->IsLoaded()) {
@@ -186,7 +188,7 @@ HRESULT _stdcall MGEProxyDevice::Present(const RECT* a, const RECT* b, HWND c, c
         }
 
         // Main menu background video
-        VideoPatch::monitor(realDevice);
+        VideoPatch::monitor(ProxyInterface);
     }
 
     // Reset scene identifiers
@@ -196,20 +198,25 @@ HRESULT _stdcall MGEProxyDevice::Present(const RECT* a, const RECT* b, HWND c, c
     isFrameComplete = false;
     isHUDComplete = false;
 
-    return ProxyDevice::Present(a, b, c, d);
+    return Direct3DDevice8::Present(a, b, c, d);
 }
 
 // SetRenderTarget
 // Remember if MW is rendering to back buffer
 HRESULT _stdcall MGEProxyDevice::SetRenderTarget(IDirect3DSurface8* a, IDirect3DSurface8* b) {
+#ifndef MGE_RTX
     if (a) {
-        IDirect3DSurface9* back;
-        realDevice->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back);
-        rendertargetNormal = (static_cast<ProxySurface*>(a)->realSurface == back);
+        IDirect3DSurface9* back = nullptr;
+        ProxyInterface->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back);
+        auto ds = static_cast<Direct3DSurface8*>(a);
+        auto s = ds->GetProxyInterface();
+        rendertargetNormal = (s == back);
+
         back->Release();
     }
+#endif // !MGE_RTX
 
-    return ProxyDevice::SetRenderTarget(a, b);
+    return Direct3DDevice8::SetRenderTarget(a, b);
 }
 
 // BeginScene - Multiple scenes per frame, non-alpha / 2x stencil / post-stencil redraw / alpha / 1st person / UI
@@ -217,7 +224,7 @@ HRESULT _stdcall MGEProxyDevice::SetRenderTarget(IDirect3DSurface8* a, IDirect3D
 HRESULT _stdcall MGEProxyDevice::BeginScene() {
     auto mwBridge = MWBridge::get();
 
-    HRESULT hr = ProxyDevice::BeginScene();
+    HRESULT hr = Direct3DDevice8::BeginScene();
     if (hr != D3D_OK) {
         return hr;
     }
@@ -225,9 +232,11 @@ HRESULT _stdcall MGEProxyDevice::BeginScene() {
     if (mwBridge->IsLoaded() && rendertargetNormal) {
         if (!isHUDready) {
             // Initialize HUD
-            StatusOverlay::init(realDevice);
+            StatusOverlay::init(ProxyInterface);
             StatusOverlay::setStatus(XE_VERSION_STRING);
-            MGEhud::init(realDevice);
+#ifndef MGE_RTX
+MGEhud::init(ProxyInterface);
+#endif // MGE_RTX
 
             // Set scaling on Morrowind's UI system
             if (Configuration.UIScale != 1.0f) {
@@ -257,9 +266,11 @@ HRESULT _stdcall MGEProxyDevice::BeginScene() {
             }
 
             // Render user HUD before Morrowind HUD
+#ifndef MGE_RTX
             if (isHUDready && !isHUDComplete) {
                 MGEhud::draw();
             }
+#endif // MGE_RTX
 
             isFrameComplete = true;
         }
@@ -286,13 +297,17 @@ HRESULT _stdcall MGEProxyDevice::EndScene() {
             }
 
             // Opaque features
+#ifndef MGE_RTX
             DistantLand::renderStage1();
+#endif
 
             // Blend close objects over distant land
             DistantLand::renderStageBlend();
         } else if (!isFrameComplete) {
             // Everything else except UI
+#ifndef MGE_RTX
             DistantLand::renderStage2();
+#endif
 
             // Draw water if the Morrowind water plane doesn't appear in view
             // it may be too distant or stencil scene order is non-normative
@@ -309,19 +324,19 @@ HRESULT _stdcall MGEProxyDevice::EndScene() {
 
         // Render status overlay
         StatusOverlay::setFPS(calcFPS());
-        StatusOverlay::show(realDevice);
-
+        StatusOverlay::show(ProxyInterface);
+       
         isHUDComplete = true;
     }
 
-    return ProxyDevice::EndScene();
+    return Direct3DDevice8::EndScene();
 }
 
 // Clear - Occurs at start of frame, and also a z-clear before rendering 1st person and sunglare
 // Skybox mesh doesn't extend over whole background; cleared background colour is visible at horizon
 HRESULT _stdcall MGEProxyDevice::Clear(DWORD a, const D3DRECT* b, DWORD c, D3DCOLOR d, float e, DWORD f) {
     DistantLand::setHorizonColour(d);
-    return ProxyDevice::Clear(a, b, c, d, e, f);
+    return Direct3DDevice8::Clear(a, b, c, d, e, f);
 }
 
 // SetTransform
@@ -337,7 +352,7 @@ HRESULT _stdcall MGEProxyDevice::SetTransform(D3DTRANSFORMSTATETYPE a, const D3D
             if (isMainView) {
                 D3DXMATRIX view = *b;
                 view *= camEffectsMatrix;
-                return ProxyDevice::SetTransform(a, &view);
+                return Direct3DDevice8::SetTransform(a, &view);
             }
         } else if (a == D3DTS_PROJECTION) {
             // Only screw with main scene projection
@@ -350,12 +365,12 @@ HRESULT _stdcall MGEProxyDevice::SetTransform(D3DTRANSFORMSTATETYPE a, const D3D
                     proj._22 *= Configuration.CameraEffects.zoom;
                 }
 
-                return ProxyDevice::SetTransform(a, &proj);
+                return Direct3DDevice8::SetTransform(a, &proj);
             }
         }
     }
 
-    return ProxyDevice::SetTransform(a, b);
+    return Direct3DDevice8::SetTransform(a, b);
 }
 
 // SetMaterial
@@ -364,7 +379,7 @@ HRESULT _stdcall MGEProxyDevice::SetMaterial(const D3DMATERIAL8* a) {
     captureMaterial(a);
     isWaterMaterial = (a->Power == 99999.0f);
 
-    return ProxyDevice::SetMaterial(a);
+    return Direct3DDevice8::SetMaterial(a);
 }
 
 // SetLight
@@ -377,7 +392,7 @@ HRESULT _stdcall MGEProxyDevice::SetLight(DWORD a, const D3DLIGHT8* b) {
         DistantLand::setSunLight(b);
     }
 
-    return ProxyDevice::SetLight(a, b);
+    return Direct3DDevice8::SetLight(a, b);
 }
 
 // SetRenderState
@@ -414,7 +429,7 @@ HRESULT _stdcall MGEProxyDevice::SetRenderState(D3DRENDERSTATETYPE a, DWORD b) {
         }
     }
 
-    return ProxyDevice::SetRenderState(a, b);
+    return Direct3DDevice8::SetRenderState(a, b);
 }
 
 // SetTextureStageState
@@ -426,13 +441,13 @@ HRESULT _stdcall MGEProxyDevice::SetTextureStageState(DWORD a, D3DTEXTURESTAGEST
     // Note that DX8 had sampling state bound to texture stages instead of samplers
     if (b == D3DTSS_MINFILTER) {
         DWORD filter = (c != D3DTEXF_NONE) ? Configuration.ScaleFilter : D3DTEXF_NONE;
-        return realDevice->SetSamplerState(a, D3DSAMP_MINFILTER, filter);
+        return ProxyInterface->SetSamplerState(a, D3DSAMP_MINFILTER, filter);
     } else if (b == D3DTSS_MIPFILTER) {
         DWORD filter = (c != D3DTEXF_NONE) ? D3DTEXF_LINEAR : D3DTEXF_NONE;
-        return realDevice->SetSamplerState(a, D3DSAMP_MIPFILTER, filter);
+        return ProxyInterface->SetSamplerState(a, D3DSAMP_MIPFILTER, filter);
     }
 
-    return ProxyDevice::SetTextureStageState(a, b, c);
+    return Direct3DDevice8::SetTextureStageState(a, b, c);
 }
 
 // DrawIndexedPrimitive - Where all the drawing happens
@@ -442,7 +457,7 @@ HRESULT _stdcall MGEProxyDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE a, UINT b
     bool isShadowStencil = isStencilScene && stencilRef <= 1;
     if (DistantLand::ready && rendertargetNormal && isMainView && !isShadowStencil) {
         rs.primType = a;
-        rs.baseIndex = baseVertexIndex;
+        rs.baseIndex = CurrentBaseVertexIndex;
         rs.minIndex = b;
         rs.vertCount = c;
         rs.startIndex = d;
@@ -471,16 +486,18 @@ HRESULT _stdcall MGEProxyDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE a, UINT b
         }
     }
 
-    return ProxyDevice::DrawIndexedPrimitive(a, b, c, d, e);
+    return Direct3DDevice8::DrawIndexedPrimitive(a, b, c, d, e);
 }
 
 // Release - Free all resources when refcount hits 0
 ULONG _stdcall MGEProxyDevice::Release() {
-    ULONG r = ProxyDevice::Release();
+    ULONG r = Direct3DDevice8::Release();
 
     if (r == 0) {
         DistantLand::release();
+#ifndef MGE_RTX
         MGEhud::release();
+#endif // MGE_RTX
         StatusOverlay::release();
     }
 
@@ -547,28 +564,30 @@ bool detectMenu(const D3DMATRIX* m) {
 
 HRESULT _stdcall MGEProxyDevice::SetTexture(DWORD a, IDirect3DBaseTexture8* b) {
     if (a == 0) {
-        rs.texture = b ? static_cast<ProxyTexture*>(b)->realTexture : NULL;
+        rs.texture = b ? static_cast<Direct3DTexture8*>(b)->GetProxyInterface() : NULL;
     }
-    return ProxyDevice::SetTexture(a, b);
+    return Direct3DDevice8::SetTexture(a, b);
 }
 
 HRESULT _stdcall MGEProxyDevice::SetVertexShader(DWORD a) {
     rs.fvf = a;
-    return ProxyDevice::SetVertexShader(a);
+    return Direct3DDevice8::SetVertexShader(a);
 }
 
 HRESULT _stdcall MGEProxyDevice::SetStreamSource(UINT a, IDirect3DVertexBuffer8* b, UINT c) {
     if (a == 0) {
-        rs.vb = (IDirect3DVertexBuffer9*)b;
+        rs.vb = static_cast<Direct3DVertexBuffer8*>(b)->GetProxyInterface();
+        //rs.vb = (IDirect3DVertexBuffer9*)b;
         rs.vbOffset = 0;
         rs.vbStride = c;
     }
-    return ProxyDevice::SetStreamSource(a, b, c);
+    return Direct3DDevice8::SetStreamSource(a, b, c);
 }
 
 HRESULT _stdcall MGEProxyDevice::SetIndices(IDirect3DIndexBuffer8* a, UINT b) {
-    rs.ib = (IDirect3DIndexBuffer9*)a;
-    return ProxyDevice::SetIndices(a, b);
+    rs.ib = static_cast<Direct3DIndexBuffer8*>(a)->GetProxyInterface();
+    //rs.ib = (IDirect3DIndexBuffer9*)a;
+    return Direct3DDevice8::SetIndices(a, b);
 }
 
 HRESULT _stdcall MGEProxyDevice::LightEnable(DWORD a, BOOL b) {
@@ -581,7 +600,7 @@ HRESULT _stdcall MGEProxyDevice::LightEnable(DWORD a, BOOL b) {
             lightrs.active.pop_back();
         }
     }
-    return ProxyDevice::LightEnable(a, b);
+    return Direct3DDevice8::LightEnable(a, b);
 }
 
 void captureRenderState(D3DRENDERSTATETYPE a, DWORD b) {

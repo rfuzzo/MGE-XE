@@ -6,6 +6,7 @@
 #include "distantshader.h"
 #include "postshaders.h"
 #include "mwbridge.h"
+#include "../../../source/d3d8.hpp"
 
 
 

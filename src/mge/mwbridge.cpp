@@ -5,6 +5,7 @@
 #include "assert.h"
 
 #include <cmath>
+#include "../../../source/d3d8to9.hpp"
 
 
 
