@@ -1,4 +1,6 @@
 
+#define MGE_HUD
+
 #include "mged3d8device.h"
 
 #include <algorithm>
@@ -7,9 +9,9 @@
 #include "distantland.h"
 #include "mwbridge.h"
 #include "statusoverlay.h"
-#ifndef MGE_RTX
+#ifdef MGE_HUD
 #include "userhud.h"
-#endif // MGE_RTX
+#endif
 #include "videobackground.h"
 
 static int sceneCount;
@@ -107,7 +109,7 @@ HRESULT _stdcall MGEProxyDevice::Present(const RECT* a, const RECT* b, HWND c, c
         // Mark water material to allow MGEProxyDevice to detect it
 #ifndef MGE_RTX
         mwBridge->markWaterNode(99999.0f);
-#endif // !MGE_RTX
+#endif
     }
 
     if (mwBridge->IsLoaded()) {
@@ -206,17 +208,29 @@ HRESULT _stdcall MGEProxyDevice::Present(const RECT* a, const RECT* b, HWND c, c
 // SetRenderTarget
 // Remember if MW is rendering to back buffer
 HRESULT _stdcall MGEProxyDevice::SetRenderTarget(IDirect3DSurface8* a, IDirect3DSurface8* b) {
-#ifndef MGE_RTX
+
     if (a) {
         IDirect3DSurface9* back = nullptr;
-        ProxyInterface->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back);
+        auto hr = ProxyInterface->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back);
         auto ds = static_cast<Direct3DSurface8*>(a);
         auto s = ds->GetProxyInterface();
-        rendertargetNormal = (s == back);
+        if (s == back)
+        {
+            rendertargetNormal = true;
+		}
+		else
+		{
+            // TODO MB fix this
+#ifdef MGE_RTX
+			rendertargetNormal = false;
+#else
+            rendertargetNormal = true;
+#endif
+        }
 
         back->Release();
     }
-#endif // !MGE_RTX
+
 
     return Direct3DDevice8::SetRenderTarget(a, b);
 }
@@ -236,9 +250,9 @@ HRESULT _stdcall MGEProxyDevice::BeginScene() {
             // Initialize HUD
             StatusOverlay::init(ProxyInterface);
             StatusOverlay::setStatus(XE_VERSION_STRING);
-#ifndef MGE_RTX
+#ifdef MGE_HUD
 MGEhud::init(ProxyInterface);
-#endif // MGE_RTX
+#endif
 
             // Set scaling on Morrowind's UI system
             if (Configuration.UIScale != 1.0f) {
@@ -268,11 +282,11 @@ MGEhud::init(ProxyInterface);
             }
 
             // Render user HUD before Morrowind HUD
-#ifndef MGE_RTX
+#ifdef MGE_HUD
             if (isHUDready && !isHUDComplete) {
-                MGEhud::draw();
+                //MGEhud::draw();
             }
-#endif // MGE_RTX
+#endif
 
             isFrameComplete = true;
         }
@@ -497,9 +511,9 @@ ULONG _stdcall MGEProxyDevice::Release() {
 
     if (r == 0) {
         DistantLand::release();
-#ifndef MGE_RTX
+#ifdef MGE_HUD
         MGEhud::release();
-#endif // MGE_RTX
+#endif
         StatusOverlay::release();
     }
 
