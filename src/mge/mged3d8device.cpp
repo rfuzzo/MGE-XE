@@ -251,7 +251,7 @@ HRESULT _stdcall MGEProxyDevice::BeginScene() {
             StatusOverlay::init(ProxyInterface);
             StatusOverlay::setStatus(XE_VERSION_STRING);
 #ifdef MGE_HUD
-MGEhud::init(ProxyInterface);
+            MGEhud::init(ProxyInterface);
 #endif
 
             // Set scaling on Morrowind's UI system
@@ -284,6 +284,7 @@ MGEhud::init(ProxyInterface);
             // Render user HUD before Morrowind HUD
 #ifdef MGE_HUD
             if (isHUDready && !isHUDComplete) {
+                // TODO MB
                 //MGEhud::draw();
             }
 #endif
@@ -313,7 +314,7 @@ HRESULT _stdcall MGEProxyDevice::EndScene() {
             }
 
             // Opaque features
-#ifndef MGE_RTX
+#ifdef MGE_RTX
             DistantLand::renderStage1();
 #endif
 
@@ -321,7 +322,7 @@ HRESULT _stdcall MGEProxyDevice::EndScene() {
             DistantLand::renderStageBlend();
         } else if (!isFrameComplete) {
             // Everything else except UI
-#ifndef MGE_RTX
+#ifdef MGE_RTX
             DistantLand::renderStage2();
 #endif
 
