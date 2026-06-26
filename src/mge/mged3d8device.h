@@ -7,7 +7,7 @@
 
 class MGEProxyDevice : public Direct3DDevice8 {
 public:
-    MGEProxyDevice(IDirect3DDevice9* real, Direct3D8* d3d, bool EnableZBufferDiscarding);
+    MGEProxyDevice(IDirect3DDevice9* real, Direct3D8* d3d, DWORD BehaviorFlags, D3DFORMAT ZBufferFormat, bool EnableZBufferDiscarding);
     ULONG _stdcall Release(void);
 
     HRESULT _stdcall Present(const RECT* a, const RECT* b, HWND c, const RGNDATA* d);

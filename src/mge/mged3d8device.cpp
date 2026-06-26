@@ -41,7 +41,7 @@ static float calcFPS();
 
 
 
-MGEProxyDevice::MGEProxyDevice(IDirect3DDevice9* real, Direct3D8* d3d, bool EnableZBufferDiscarding) : Direct3DDevice8(d3d, real, EnableZBufferDiscarding) {
+MGEProxyDevice::MGEProxyDevice(IDirect3DDevice9* real, Direct3D8* d3d, DWORD BehaviorFlags, D3DFORMAT ZBufferFormat, bool EnableZBufferDiscarding) : Direct3DDevice8(d3d, real, BehaviorFlags, ZBufferFormat, EnableZBufferDiscarding) {
     // Initialize state here, as the device is released and recreated on fullscreen Alt-Tab
     sceneCount = -1;
     rendertargetNormal = true;
