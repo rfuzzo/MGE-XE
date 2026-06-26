@@ -1,68 +1,5 @@
-;;
-;; Language file template for MGEXEgui user interface translation.
-;; File needs to be saved with UTF-8 encoding, either with or without BOM.
-;;
-
 [## Language ##]
-;Name = English (Template)
-;Translator = Translator's Name
-
-;; Use the following naming scheme for default translations (you may uncomment one,
-;; to try if it's displayed on the list of translations in MGEXEgui):
-;Name = Český (Czech)
-;Name = Danske (Danish)
-;Name = Deutsch (German)
-;Name = Ελληνικά (Greek)
-;Name = Español (Spanish)
-;Name = Français (French)
-;Name = Italiano (Italian)
-;Name = Nederlands (Dutch)
-;Name = Polski (Polish)
-;Name = Русский (Russian)
-;Name = Svenska (Swedish)
-;Name = Türk (Turkish)
-;
-;; If this doesn't want to work with language autodetection, name it in reverse order
-;; - i.e. "Greek (Ελληνικά)", "Russian (Русский)", "Spanish (Español)", etc.
-;;
-;; Language autodetection looks first for language named: "NativeName (EnglishName)",
-;; then, if it doesn't find, for languages named: "EnglishName (NativeName)",
-;; and next for first of language names starting with "NativeName",
-;; and then for first of language names starting with "EnglishName".
-;; If it fails for all, the built-in "English (default)" language is used.
-;;
-;; Localized entry needs to be single-lined, but you can use escape characters,
-;; to make it appear as multi-lined, after reading it by INI file interpreter:
-;; "\n"		- line feed
-;; "\r\n"	- carriage return and line feed
-;; "\r"		- carriage return
-;;
-;; Other characters that are replaced by a special character when escaped are:
-;; "\b"		- backspace
-;; "\t"		- tab
-;;
-;; The "&" character inside text indicates the character after will be an Alt+character
-;; shortcut that will select the control. These shortcuts appear as an underline; depending
-;; on your OS version, underlines will only appear after you press Alt. It is not necessary
-;; to have a shortcut for everything, if you wish to add them it should be a unique letter
-;; for the tab page or menu.
-;;
-;; Backslash character inside a localized string (\) needs to be escaped too - i.e. "\\",
-;; otherwise it won't be displayed, because it is used to escape following it character.
-;; If you need to use a quotation mark (") or semicolon (;) inside a localized string,
-;; it's the best to escape them as well - i.e. "\"" or "\;" - because future interpreters
-;; might be more or less strict for finding the start and end of quoted strings or comments,
-;; than only by first and last occurance of quotation mark, and whether (;) is outside of it.
-;;
-;; Currently 3 types of sections are supported:
-;; [<FormName>.Text]			- for replacing text displayed on controls
-;; [<FormName>.ToolTips]		- for replacing tooltips of either controls or tab pages
-;; [<FormName>.Strings]			- for replacing other strings that can be displayed
-;;
-;; ComboBoxes are localized by using the ; character as an item seperator. The number of
-;; items must match the template.
-;;
-;; Tooltips of tab pages are handled differently, so they use the name of a control.
+Name = English (default)
 
 
 
@@ -82,8 +19,7 @@ UnableToWriteReg = "Could not write Morrowind registry key. MGEXEgui needs to be
 MWRunning = "Morrowind appears to be currently running.\nPlease quit the game before running MGEXEgui."
 NotMWDir = "MGE XE must be installed to the Morrowind directory."
 MWAdapterNotPresent = "Morrowind is configured to use a monitor or video output that is no longer present. The adapter selection will be reset to default."
-;; Replace English with your language
-Translation = "English translation"
+Translation = "English, default"
 
 
 
@@ -338,6 +274,7 @@ SShotName = "Every saved MGE screenshot will start its file name with this prefi
 SShotDir = "This is output directory where taken screenshots will be saved."
 SShotDirBrowse = "Use it for selecting output directory where you want the screenshots to be saved."
 SShotDirClear = "Changes selected output directory for screenshots to default.\nScreenshots will be saved to Morrowind installation directory."
+UseSharedMemory = "Moves some internal MGE data into a separate 64-bit process.\nThis can reduce out-of-memory issues when using lots of land mods and/or high draw distance. Only available on Windows 10+."
 
 ; Distant land tab
 DistantLandWizard = "This will launch the process that creates the files that distant land needs to work.\nYou cannot enable distant land without running it."
