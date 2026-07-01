@@ -13,6 +13,83 @@
 using std::string;
 using std::unordered_map;
 
+#ifdef MGE_RTX
+// renderStage0 (RTX) - Render distant land at beginning of scene 0, after sky
+// Draws distant geometry with fixed-function calls only, using the scene's own
+// camera matrices, so that RTX Remix can capture stable world-space geometry.
+// All shader-based stages (blend, shadows, depth, water, sky scattering,
+// post-processing) are skipped; Remix replaces lighting, fog and shadowing.
+void DistantLand::renderStage0() {
+    auto mwBridge = MWBridge::get();
+    IDirect3DStateBlock9* stateSaved;
+
+    // Update current cell and select distant static set
+    selectDistantCell();
+
+    // Get Morrowind camera matrices; setProjection has already extended the far plane,
+    // and reusing the scene projection keeps the Remix camera consistent for the frame
+    device->GetTransform(D3DTS_VIEW, &mwView);
+    device->GetTransform(D3DTS_PROJECTION, &mwProj);
+
+    // Set variables derived from current game state and camera configuration
+    // adjustFog still manages Morrowind's fog ranges and computes culling distances
+    setView(&mwView);
+    isRenderCached = false;
+    adjustFog();
+
+    if (isDistantCell()) {
+        // Save state block manually since we can change FVF/decl
+        device->CreateStateBlock(D3DSBT_ALL, &stateSaved);
+
+        // Fixed-function albedo-only state; Remix re-lights the scene, and distance
+        // fog would otherwise be captured as baked-in surface colour
+        device->SetVertexShader(nullptr);
+        device->SetPixelShader(nullptr);
+        device->SetRenderState(D3DRS_LIGHTING, FALSE);
+        device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+        device->SetRenderState(D3DRS_ZENABLE, TRUE);
+        device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+        device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+        device->SetRenderState(D3DRS_CULLMODE, D3DCULL_CW);
+        device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        device->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATEREQUAL);
+        device->SetRenderState(D3DRS_ALPHAREF, 133);
+        device->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+        device->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
+        device->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        device->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+
+        if (!mwBridge->IsUnderwater(eyePos.z)) {
+            // Draw distant landscape
+            if (mwBridge->IsExterior()) {
+                renderDistantLandFF(&mwView, &mwProj);
+            }
+
+            // Draw distant statics; the near-boundary alpha dissolve is dropped,
+            // as it needs a shader and Remix handles the whole depth range anyway
+            if (Configuration.MGEFlags & USE_DISTANT_STATICS) {
+                cullDistantStatics(&mwView, &mwProj);
+                renderDistantStaticsFF();
+            } else {
+                visDistant.RemoveAll();
+            }
+        }
+
+        // Restore render state
+        stateSaved->Apply();
+        stateSaved->Release();
+    }
+
+    // Clear stray recordings
+    recordMW.clear();
+    recordSky.clear();
+}
+#else
 // renderStage0 - Render distant land at beginning of scene 0, after sky
 void DistantLand::renderStage0() {
     auto mwBridge = MWBridge::get();
@@ -140,6 +217,7 @@ void DistantLand::renderStage0() {
     recordMW.clear();
     recordSky.clear();
 }
+#endif // MGE_RTX
 
 // renderStage1 - Render grass and shadows over near features, and write depth texture for scene 0
 void DistantLand::renderStage1() {

@@ -70,6 +70,44 @@ public:
         }
     }
 
+    // Draw with fixed-function state only; texture, world transform and alpha test
+    // come from the mesh, everything else is expected to be set up by the caller
+    void RenderFF(IDirect3DDevice9* device,
+                  unsigned int vertex_size,
+                  bool parallelRead = false) {
+        IDirect3DTexture9* last_texture = nullptr;
+        IDirect3DVertexBuffer9* last_buffer = nullptr;
+
+        if (parallelRead) {
+            visible_set.start_read();
+        }
+        visible_set.restart();
+        while (!visible_set.at_end()) {
+            const RenderMesh& mesh = visible_set.next();
+
+            // Set texture and alpha test if it has changed
+            if (last_texture != mesh.tex) {
+                device->SetTexture(0, mesh.tex);
+                device->SetRenderState(D3DRS_ALPHATESTENABLE, mesh.hasAlpha);
+                last_texture = mesh.tex;
+            }
+
+            // Set buffer if it has changed
+            if (last_buffer != mesh.vBuffer) {
+                device->SetIndices(mesh.iBuffer);
+                device->SetStreamSource(0, mesh.vBuffer, 0, vertex_size);
+                last_buffer = mesh.vBuffer;
+            }
+
+            device->SetTransform(D3DTS_WORLD, &mesh.transform);
+            device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, mesh.verts, 0, mesh.faces);
+        }
+
+        if (parallelRead) {
+            visible_set.end_read();
+        }
+    }
+
     void Render(IDirect3DDevice9* device,
                 ID3DXEffect* effect,
                 ID3DXEffect* effectPool,

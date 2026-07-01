@@ -194,6 +194,53 @@ void DistantLand::cullDistantStatics(const D3DXMATRIX* view, const D3DXMATRIX* p
     }
 }
 
+#ifdef MGE_RTX
+// renderDistantLandFF - Draw distant land with fixed-function calls only, using the
+// scene's own camera matrices, so that RTX Remix can capture stable world geometry
+void DistantLand::renderDistantLandFF(const D3DXMATRIX* view, const D3DXMATRIX* proj) {
+    D3DXMATRIX world, viewproj = (*view) * (*proj);
+    D3DXVECTOR4 viewsphere(eyePos.x, eyePos.y, eyePos.z, Configuration.DL.DrawDist * kCellSize);
+
+    // Cull and draw
+    ViewFrustum frustum(&viewproj);
+
+    if (Configuration.UseSharedMemory) {
+        // kick the operation off early so we can do some additional work while it runs
+        visLandShared.RemoveAll();
+        ipcClient.getVisibleMeshes(visLandSharedId, frustum, viewsphere, VIS_LAND);
+    }
+
+    D3DXMatrixIdentity(&world);
+    device->SetTransform(D3DTS_WORLD, &world);
+    device->SetTexture(0, texWorldColour);
+
+    if (!Configuration.UseSharedMemory) {
+        visLand.RemoveAll();
+        DistantLandShare::LandQuadTree.GetVisibleMeshes(frustum, viewsphere, visLand);
+    }
+
+    device->SetVertexDeclaration(LandDecl);
+
+    if (Configuration.UseSharedMemory) {
+        visLandShared.Render(device, SIZEOFLANDVERT, true);
+    } else {
+        visLand.Render(device, SIZEOFLANDVERT);
+    }
+}
+
+// renderDistantStaticsFF - Draw distant statics with fixed-function calls only
+// Expects cullDistantStatics to have been run first
+void DistantLand::renderDistantStaticsFF() {
+    device->SetVertexDeclaration(StaticDecl);
+
+    if (Configuration.UseSharedMemory) {
+        visDistantShared.RenderFF(device, SIZEOFSTATICVERT);
+    } else {
+        visDistant.RenderFF(device, SIZEOFSTATICVERT);
+    }
+}
+#endif // MGE_RTX
+
 void DistantLand::renderDistantStatics() {
     if (!MWBridge::get()->IsExterior()) {
         // Set clipping to stop large architectural meshes (that don't match exactly)

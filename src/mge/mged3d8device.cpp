@@ -260,11 +260,14 @@ HRESULT _stdcall MGEProxyDevice::BeginScene() {
                 distantWater = (Configuration.MGEFlags & USE_DISTANT_LAND) || (Configuration.MGEFlags & USE_DISTANT_WATER);
             }
         } else {
+#ifndef MGE_RTX
             // UI scene, apply post-process if there was anything drawn before it
             // Race menu will render an extra scene past this point
+            // RTX mode skips post-processing; Remix composes the frame itself
             if (DistantLand::ready && sceneCount > 0 && !isFrameComplete) {
                 DistantLand::postProcess();
             }
+#endif
 
             // Render user HUD before Morrowind HUD
 #ifdef MGE_HUD
@@ -285,6 +288,16 @@ HRESULT _stdcall MGEProxyDevice::BeginScene() {
 // MGE intercepts first scene to draw distant land before it finishes, others it applies shadows to
 HRESULT _stdcall MGEProxyDevice::EndScene() {
     if (DistantLand::ready && rendertargetNormal) {
+#ifdef MGE_RTX
+        // RTX mode only draws distant geometry; grass/shadow/depth stages, the
+        // MW/MGE blend and the shader water plane are all skipped, as Remix
+        // replaces lighting, fog and water, and cannot capture shader rendering
+        if (sceneCount == 0 && !stage0Complete) {
+            // Edge case, render distant land even if Morrowind has culled everything
+            DistantLand::renderStage0();
+            stage0Complete = true;
+        }
+#else
         // The following Morrowind scenes get past the filters:
         // ~ Opaque meshes, plus alpha meshes with 'No Sorter' property (which should use alpha test)
         // ~ If stencil shadows are active, then shadow casters are deferred to be drawn in a scene after
@@ -299,17 +312,13 @@ HRESULT _stdcall MGEProxyDevice::EndScene() {
             }
 
             // Opaque features
-#ifdef MGE_RTX
             DistantLand::renderStage1();
-#endif
 
             // Blend close objects over distant land
             DistantLand::renderStageBlend();
         } else if (!isFrameComplete) {
             // Everything else except UI
-#ifdef MGE_RTX
             DistantLand::renderStage2();
-#endif
 
             // Draw water if the Morrowind water plane doesn't appear in view
             // it may be too distant or stencil scene order is non-normative
@@ -318,6 +327,7 @@ HRESULT _stdcall MGEProxyDevice::EndScene() {
                 waterDrawn = true;
             }
         }
+#endif
     }
 
     if (isFrameComplete && isHUDready && !isHUDComplete) {
@@ -458,6 +468,15 @@ HRESULT _stdcall MGEProxyDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE a, UINT b
     // Allow distant land to inspect draw calls
     bool isShadowStencil = isStencilScene && stencilRef <= 1;
     if (DistantLand::ready && rendertargetNormal && isMainView && !isShadowStencil) {
+#ifdef MGE_RTX
+        // RTX mode does not record, replace or skip any Morrowind draw calls;
+        // they must reach the device unmodified for Remix to capture them.
+        // Distant land is drawn as soon as the sky has been rendered.
+        if (!stage0Complete && !isAmbientWhite) {
+            DistantLand::renderStage0();
+            stage0Complete = true;
+        }
+#else
         rs.primType = a;
         rs.baseIndex = CurrentBaseVertexIndex;
         rs.minIndex = b;
@@ -486,6 +505,7 @@ HRESULT _stdcall MGEProxyDevice::DrawIndexedPrimitive(D3DPRIMITIVETYPE a, UINT b
                 return D3D_OK;
             }
         }
+#endif
     }
 
     return Direct3DDevice8::DrawIndexedPrimitive(a, b, c, d, e);

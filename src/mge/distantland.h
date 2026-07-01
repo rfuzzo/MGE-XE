@@ -205,6 +205,10 @@ public:
     static void renderDistantLandZ();
     static void cullDistantStatics(const D3DXMATRIX* view, const D3DXMATRIX* proj);
     static void renderDistantStatics();
+#ifdef MGE_RTX
+    static void renderDistantLandFF(const D3DXMATRIX* view, const D3DXMATRIX* proj);
+    static void renderDistantStaticsFF();
+#endif
     static void cullGrass(const D3DXMATRIX* view, const D3DXMATRIX* proj);
     template<class T>
     static void buildGrassInstanceVB(VisibleSet<T>& grassSet);
