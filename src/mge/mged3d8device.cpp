@@ -211,26 +211,11 @@ HRESULT _stdcall MGEProxyDevice::SetRenderTarget(IDirect3DSurface8* a, IDirect3D
 
     if (a) {
         IDirect3DSurface9* back = nullptr;
-        auto hr = ProxyInterface->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back);
-        auto ds = static_cast<Direct3DSurface8*>(a);
-        auto s = ds->GetProxyInterface();
-        if (s == back)
-        {
-            rendertargetNormal = true;
-		}
-		else
-		{
-            // TODO MB fix this
-#ifdef MGE_RTX
-			rendertargetNormal = false;
-#else
-            rendertargetNormal = true;
-#endif
+        if (SUCCEEDED(ProxyInterface->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back)) && back) {
+            rendertargetNormal = (static_cast<Direct3DSurface8*>(a)->GetProxyInterface() == back);
+            back->Release();
         }
-
-        back->Release();
     }
-
 
     return Direct3DDevice8::SetRenderTarget(a, b);
 }
@@ -593,8 +578,7 @@ HRESULT _stdcall MGEProxyDevice::SetVertexShader(DWORD a) {
 
 HRESULT _stdcall MGEProxyDevice::SetStreamSource(UINT a, IDirect3DVertexBuffer8* b, UINT c) {
     if (a == 0) {
-        rs.vb = static_cast<Direct3DVertexBuffer8*>(b)->GetProxyInterface();
-        //rs.vb = (IDirect3DVertexBuffer9*)b;
+        rs.vb = b ? static_cast<Direct3DVertexBuffer8*>(b)->GetProxyInterface() : nullptr;
         rs.vbOffset = 0;
         rs.vbStride = c;
     }
@@ -602,8 +586,7 @@ HRESULT _stdcall MGEProxyDevice::SetStreamSource(UINT a, IDirect3DVertexBuffer8*
 }
 
 HRESULT _stdcall MGEProxyDevice::SetIndices(IDirect3DIndexBuffer8* a, UINT b) {
-    rs.ib = static_cast<Direct3DIndexBuffer8*>(a)->GetProxyInterface();
-    //rs.ib = (IDirect3DIndexBuffer9*)a;
+    rs.ib = a ? static_cast<Direct3DIndexBuffer8*>(a)->GetProxyInterface() : nullptr;
     return Direct3DDevice8::SetIndices(a, b);
 }
 
