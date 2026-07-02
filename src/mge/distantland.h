@@ -101,6 +101,9 @@ public:
     static std::vector< std::pair<const RenderMesh*, int> > batchedGrass;
 
     static IDirect3DTexture9* texWorldColour, *texWorldNormals, *texWorldDetail;
+#ifdef MGE_RTX
+    static IDirect3DTexture9* texDistantWaterRTX;
+#endif
     static IDirect3DTexture9* texDepthFrame;
     static IDirect3DSurface9* surfDepthDepth;
     static IDirect3DTexture9* texDistantBlend;

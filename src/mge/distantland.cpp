@@ -79,6 +79,31 @@ void DistantLand::renderStage0() {
             } else {
                 visDistant.RemoveAll();
             }
+
+            // Draw the distant water plane; Morrowind's own water covers the
+            // near range, so sink this plane slightly below it. Tag the flat
+            // colour texture as water in Remix to get a proper water material
+            if (((Configuration.MGEFlags & USE_DISTANT_LAND) || (Configuration.MGEFlags & USE_DISTANT_WATER))
+                    && mwBridge->CellHasWater() && texDistantWaterRTX) {
+                D3DXMATRIX world, invView, uvScale, texgen;
+                D3DXMatrixTranslation(&world, eyePos.x, eyePos.y, mwBridge->WaterLevel() - 2.0f);
+                device->SetTransform(D3DTS_WORLD, &world);
+                device->SetTexture(0, texDistantWaterRTX);
+
+                // The plane mesh has position-only vertices; generate world-space
+                // UVs so Remix material replacements have usable texcoords
+                D3DXMatrixInverse(&invView, 0, &mwView);
+                D3DXMatrixScaling(&uvScale, 1.0f / 4096.0f, 1.0f / 4096.0f, 1.0f);
+                texgen = invView * uvScale;
+                device->SetTransform(D3DTS_TEXTURE0, &texgen);
+                device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, D3DTSS_TCI_CAMERASPACEPOSITION);
+                device->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
+
+                device->SetVertexDeclaration(WaterDecl);
+                device->SetStreamSource(0, vbWater, 0, 12);
+                device->SetIndices(ibWater);
+                device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, numWaterVerts, 0, numWaterTris);
+            }
         }
 
         // Restore render state

@@ -63,6 +63,9 @@ vector<DistantLand::RecordedState> DistantLand::recordSky;
 vector< std::pair<const RenderMesh*, int> > DistantLand::batchedGrass;
 
 IDirect3DTexture9* DistantLand::texWorldColour, *DistantLand::texWorldNormals, *DistantLand::texWorldDetail;
+#ifdef MGE_RTX
+IDirect3DTexture9* DistantLand::texDistantWaterRTX;
+#endif
 IDirect3DTexture9* DistantLand::texDepthFrame;
 IDirect3DSurface9* DistantLand::surfDepthDepth;
 IDirect3DTexture9* DistantLand::texDistantBlend;
@@ -181,16 +184,17 @@ const D3DVERTEXELEMENT9 WaterElem[] = {
 // World mesh vertex declaration
 const D3DVERTEXELEMENT9 LandElem[] = {
     {0, 0,  D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-    {0, 12, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
+    {0, 12, D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_NORMAL,   0},
+    {0, 24, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
     D3DDECL_END()
 };
 
 // Distant static vertex declaration
 const D3DVERTEXELEMENT9 StaticElem[] = {
     {0, 0,  D3DDECLTYPE_FLOAT3,    D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
-    {0, 12, D3DDECLTYPE_UBYTE4N,   D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_NORMAL,   0},
-    {0, 16, D3DDECLTYPE_D3DCOLOR,  D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_COLOR,    0},
-    {0, 20, D3DDECLTYPE_FLOAT2,    D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
+    {0, 12, D3DDECLTYPE_FLOAT3,    D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_NORMAL,   0},
+    {0, 24, D3DDECLTYPE_D3DCOLOR,  D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_COLOR,    0},
+    {0, 28, D3DDECLTYPE_FLOAT2,    D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
     D3DDECL_END()
 };
 
@@ -198,27 +202,77 @@ const D3DVERTEXELEMENT9 StaticElem[] = {
 static const int SIZEOFSTATICVERTFILE = 20;
 static const int SIZEOFLANDVERTFILE = 16;
 
-// Expand statics vertices: FLOAT16_4 position -> FLOAT3, FLOAT16_2 UV -> FLOAT2
+// Expand statics vertices: FLOAT16_4 position -> FLOAT3, FLOAT16_2 UV -> FLOAT2,
+// and decompress the UBYTE4N normal (stored as 0.5 * n + 0.5, with emissive in w)
+// to a signed FLOAT3, which Remix reads correctly without shader decompression
 static void expandStaticVerts(void* dst, const void* src, size_t count) {
     const BYTE* s = static_cast<const BYTE*>(src);
     BYTE* d = static_cast<BYTE*>(dst);
     for (size_t i = 0; i < count; ++i) {
         D3DXFloat16To32Array(reinterpret_cast<FLOAT*>(d), reinterpret_cast<const D3DXFLOAT16*>(s), 3);
-        memcpy(d + 12, s + 8, 8);
-        D3DXFloat16To32Array(reinterpret_cast<FLOAT*>(d + 20), reinterpret_cast<const D3DXFLOAT16*>(s + 16), 2);
+
+        float* n = reinterpret_cast<float*>(d + 12);
+        n[0] = s[8]  / 255.0f * 2.0f - 1.0f;
+        n[1] = s[9]  / 255.0f * 2.0f - 1.0f;
+        n[2] = s[10] / 255.0f * 2.0f - 1.0f;
+
+        memcpy(d + 24, s + 12, 4);
+        D3DXFloat16To32Array(reinterpret_cast<FLOAT*>(d + 28), reinterpret_cast<const D3DXFLOAT16*>(s + 16), 2);
         s += SIZEOFSTATICVERTFILE;
         d += SIZEOFSTATICVERT;
     }
 }
 
-// Expand landscape vertices: SHORT2N UV -> FLOAT2
-static void expandLandVerts(void* dst, const void* src, size_t count) {
-    const BYTE* s = static_cast<const BYTE*>(src);
+// Expand landscape vertices: SHORT2N UV -> FLOAT2, and generate smooth vertex
+// normals from the mesh; the source data has none, and Remix would otherwise
+// shade the landscape per-facet, exaggerating the low-LOD geometry
+static void expandLandVerts(void* dst, const void* srcVerts, size_t vertCount, const void* srcIndices, size_t faceCount, bool largeIndices) {
+    const BYTE* s = static_cast<const BYTE*>(srcVerts);
     BYTE* d = static_cast<BYTE*>(dst);
-    for (size_t i = 0; i < count; ++i) {
+
+    // Accumulate area-weighted face normals
+    std::vector<D3DXVECTOR3> normals(vertCount, D3DXVECTOR3(0.0f, 0.0f, 0.0f));
+    for (size_t f = 0; f < faceCount; ++f) {
+        DWORD i0, i1, i2;
+        if (largeIndices) {
+            const DWORD* tri = reinterpret_cast<const DWORD*>(srcIndices) + 3 * f;
+            i0 = tri[0]; i1 = tri[1]; i2 = tri[2];
+        } else {
+            const WORD* tri = reinterpret_cast<const WORD*>(srcIndices) + 3 * f;
+            i0 = tri[0]; i1 = tri[1]; i2 = tri[2];
+        }
+        if (i0 >= vertCount || i1 >= vertCount || i2 >= vertCount) {
+            continue;
+        }
+
+        const D3DXVECTOR3& p0 = *reinterpret_cast<const D3DXVECTOR3*>(s + i0 * SIZEOFLANDVERTFILE);
+        const D3DXVECTOR3& p1 = *reinterpret_cast<const D3DXVECTOR3*>(s + i1 * SIZEOFLANDVERTFILE);
+        const D3DXVECTOR3& p2 = *reinterpret_cast<const D3DXVECTOR3*>(s + i2 * SIZEOFLANDVERTFILE);
+        D3DXVECTOR3 e1 = p1 - p0, e2 = p2 - p0, faceNormal;
+        D3DXVec3Cross(&faceNormal, &e1, &e2);
+
+        // The landscape is a heightfield; orient towards +Z regardless of winding
+        if (faceNormal.z < 0.0f) {
+            faceNormal = -faceNormal;
+        }
+
+        normals[i0] += faceNormal;
+        normals[i1] += faceNormal;
+        normals[i2] += faceNormal;
+    }
+
+    for (size_t i = 0; i < vertCount; ++i) {
         memcpy(d, s, 12);
+
+        D3DXVECTOR3* n = reinterpret_cast<D3DXVECTOR3*>(d + 12);
+        if (D3DXVec3LengthSq(&normals[i]) > 0.0f) {
+            D3DXVec3Normalize(n, &normals[i]);
+        } else {
+            *n = D3DXVECTOR3(0.0f, 0.0f, 1.0f);
+        }
+
         const short* uv = reinterpret_cast<const short*>(s + 12);
-        float* uvOut = reinterpret_cast<float*>(d + 12);
+        float* uvOut = reinterpret_cast<float*>(d + 24);
         uvOut[0] = std::max(uv[0] / 32767.0f, -1.0f);
         uvOut[1] = std::max(uv[1] / 32767.0f, -1.0f);
         s += SIZEOFLANDVERTFILE;
@@ -686,6 +740,27 @@ bool DistantLand::initWater() {
         LOG::logline("!! Failed to load water texture");
         return false;
     }
+
+#ifdef MGE_RTX
+    // Small solid-colour texture for the fixed-function distant water plane,
+    // giving Remix a stable texture hash for water material tagging
+    hr = device->CreateTexture(4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texDistantWaterRTX, 0);
+    if (hr == D3D_OK) {
+        D3DLOCKED_RECT lr;
+        if (texDistantWaterRTX->LockRect(0, &lr, 0, 0) == D3D_OK) {
+            for (int y = 0; y < 4; ++y) {
+                DWORD* row = reinterpret_cast<DWORD*>(static_cast<BYTE*>(lr.pBits) + y * lr.Pitch);
+                for (int x = 0; x < 4; ++x) {
+                    row[x] = 0xFF1A3A4A;
+                }
+            }
+            texDistantWaterRTX->UnlockRect(0);
+        }
+    } else {
+        LOG::logline("!! Failed to create RTX distant water texture");
+        texDistantWaterRTX = nullptr;
+    }
+#endif
     hr = device->CreateVertexDeclaration(WaterElem, &WaterDecl);
     if (hr != D3D_OK) {
         LOG::logline("!! Failed to create water decl");
@@ -1195,23 +1270,34 @@ bool DistantLand::initLandscapeClient() {
             ReadFile(file, &faces, 4, &unused, 0);
             bool large = (verts > 0xFFFF || faces > 0xFFFF);
 
+#ifdef MGE_RTX
+            // Read both vertex and index data first; index data is needed to
+            // generate vertex normals during expansion
+            vector<BYTE> packedVerts(verts * SIZEOFLANDVERTFILE);
+            ReadFile(file, packedVerts.data(), verts * SIZEOFLANDVERTFILE, &unused, 0);
+            vector<BYTE> indexData(faces * (large ? 12 : 6));
+            ReadFile(file, indexData.data(), (DWORD)indexData.size(), &unused, 0);
+
             device->CreateVertexBuffer(verts * SIZEOFLANDVERT, D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &vb, 0);
             vb->Lock(0, 0, &lockdata, 0);
-#ifdef MGE_RTX
-            {
-                vector<BYTE> packedVerts(verts * SIZEOFLANDVERTFILE);
-                ReadFile(file, packedVerts.data(), verts * SIZEOFLANDVERTFILE, &unused, 0);
-                expandLandVerts(lockdata, packedVerts.data(), verts);
-            }
+            expandLandVerts(lockdata, packedVerts.data(), verts, indexData.data(), faces, large);
+            vb->Unlock();
+
+            device->CreateIndexBuffer(faces * (large ? 12 : 6), D3DUSAGE_WRITEONLY, large ? D3DFMT_INDEX32 : D3DFMT_INDEX16, D3DPOOL_DEFAULT, &ib, 0);
+            ib->Lock(0, 0, &lockdata, 0);
+            memcpy(lockdata, indexData.data(), indexData.size());
+            ib->Unlock();
 #else
+            device->CreateVertexBuffer(verts * SIZEOFLANDVERT, D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &vb, 0);
+            vb->Lock(0, 0, &lockdata, 0);
             ReadFile(file, lockdata, verts * SIZEOFLANDVERT, &unused, 0);
-#endif
             vb->Unlock();
 
             device->CreateIndexBuffer(faces * (large ? 12 : 6), D3DUSAGE_WRITEONLY, large ? D3DFMT_INDEX32 : D3DFMT_INDEX16, D3DPOOL_DEFAULT, &ib, 0);
             ib->Lock(0, 0, &lockdata, 0);
             ReadFile(file, lockdata, faces * (large ? 12 : 6), &unused, 0);
             ib->Unlock();
+#endif
 
             buffers.push_back({ vb, ib });
 
@@ -1304,23 +1390,34 @@ bool DistantLand::initLandscape() {
             IDirect3DIndexBuffer9* ib;
             void* lockdata;
 
+#ifdef MGE_RTX
+            // Read both vertex and index data first; index data is needed to
+            // generate vertex normals during expansion
+            vector<BYTE> packedVerts(i.verts * SIZEOFLANDVERTFILE);
+            ReadFile(file, packedVerts.data(), i.verts * SIZEOFLANDVERTFILE, &unused, 0);
+            vector<BYTE> indexData(i.faces * (large ? 12 : 6));
+            ReadFile(file, indexData.data(), (DWORD)indexData.size(), &unused, 0);
+
             device->CreateVertexBuffer(i.verts * SIZEOFLANDVERT, D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &vb, 0);
             vb->Lock(0, 0, &lockdata, 0);
-#ifdef MGE_RTX
-            {
-                vector<BYTE> packedVerts(i.verts * SIZEOFLANDVERTFILE);
-                ReadFile(file, packedVerts.data(), i.verts * SIZEOFLANDVERTFILE, &unused, 0);
-                expandLandVerts(lockdata, packedVerts.data(), i.verts);
-            }
+            expandLandVerts(lockdata, packedVerts.data(), i.verts, indexData.data(), i.faces, large);
+            vb->Unlock();
+
+            device->CreateIndexBuffer(i.faces * (large ? 12 : 6), D3DUSAGE_WRITEONLY, large ? D3DFMT_INDEX32 : D3DFMT_INDEX16, D3DPOOL_DEFAULT, &ib, 0);
+            ib->Lock(0, 0, &lockdata, 0);
+            memcpy(lockdata, indexData.data(), indexData.size());
+            ib->Unlock();
 #else
+            device->CreateVertexBuffer(i.verts * SIZEOFLANDVERT, D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &vb, 0);
+            vb->Lock(0, 0, &lockdata, 0);
             ReadFile(file, lockdata, i.verts * SIZEOFLANDVERT, &unused, 0);
-#endif
             vb->Unlock();
 
             device->CreateIndexBuffer(i.faces * (large ? 12 : 6), D3DUSAGE_WRITEONLY, large ? D3DFMT_INDEX32 : D3DFMT_INDEX16, D3DPOOL_DEFAULT, &ib, 0);
             ib->Lock(0, 0, &lockdata, 0);
             ReadFile(file, lockdata, i.faces * (large ? 12 : 6), &unused, 0);
             ib->Unlock();
+#endif
 
             i.vbuffer = vb;
             i.ibuffer = ib;
@@ -1443,6 +1540,12 @@ void DistantLand::release() {
 
     texWater->Release();
     texWater = nullptr;
+#ifdef MGE_RTX
+    if (texDistantWaterRTX) {
+        texDistantWaterRTX->Release();
+        texDistantWaterRTX = nullptr;
+    }
+#endif
     texReflection->Release();
     texReflection = nullptr;
     surfReflectionZ->Release();

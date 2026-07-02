@@ -445,6 +445,14 @@ HRESULT _stdcall MGEProxyDevice::SetLight(DWORD a, const D3DLIGHT8* b) {
 HRESULT _stdcall MGEProxyDevice::SetRenderState(D3DRENDERSTATETYPE a, DWORD b) {
     captureRenderState(a, b);
 
+#ifdef MGE_RTX
+    // Path tracing replaces distance fog; Morrowind's D3D fog state would
+    // otherwise be remapped into Remix volumetrics and mist out the scene
+    if (a == D3DRS_FOGENABLE) {
+        b = FALSE;
+    }
+#endif
+
     if (a == D3DRS_FOGVERTEXMODE || a == D3DRS_FOGTABLEMODE) {
         return D3D_OK;
     }
