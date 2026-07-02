@@ -742,23 +742,31 @@ bool DistantLand::initWater() {
     }
 
 #ifdef MGE_RTX
-    // Small solid-colour texture for the fixed-function distant water plane,
-    // giving Remix a stable texture hash for water material tagging
-    hr = device->CreateTexture(4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texDistantWaterRTX, 0);
-    if (hr == D3D_OK) {
-        D3DLOCKED_RECT lr;
-        if (texDistantWaterRTX->LockRect(0, &lr, 0, 0) == D3D_OK) {
-            for (int y = 0; y < 4; ++y) {
-                DWORD* row = reinterpret_cast<DWORD*>(static_cast<BYTE*>(lr.pBits) + y * lr.Pitch);
-                for (int x = 0; x < 4; ++x) {
-                    row[x] = 0xFF1A3A4A;
-                }
-            }
-            texDistantWaterRTX->UnlockRect(0);
-        }
+    // Texture for the fixed-function distant water plane. Prefer Morrowind's own
+    // water surface texture; its content hash matches the near water in Remix, so
+    // one Water category tag covers both and the untagged appearance is consistent
+    texDistantWaterRTX = BSA::loadTexture(device, "water00.tga");
+    if (texDistantWaterRTX) {
+        LOG::logline("-- RTX distant water using Morrowind water surface texture");
     } else {
-        LOG::logline("!! Failed to create RTX distant water texture");
-        texDistantWaterRTX = nullptr;
+        // Fall back to a small solid-colour texture with a stable hash for tagging
+        hr = device->CreateTexture(4, 4, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &texDistantWaterRTX, 0);
+        if (hr == D3D_OK) {
+            D3DLOCKED_RECT lr;
+            if (texDistantWaterRTX->LockRect(0, &lr, 0, 0) == D3D_OK) {
+                for (int y = 0; y < 4; ++y) {
+                    DWORD* row = reinterpret_cast<DWORD*>(static_cast<BYTE*>(lr.pBits) + y * lr.Pitch);
+                    for (int x = 0; x < 4; ++x) {
+                        row[x] = 0xFF1A3A4A;
+                    }
+                }
+                texDistantWaterRTX->UnlockRect(0);
+            }
+            LOG::logline("-- RTX distant water using fallback flat colour texture");
+        } else {
+            LOG::logline("!! Failed to create RTX distant water texture");
+            texDistantWaterRTX = nullptr;
+        }
     }
 #endif
     hr = device->CreateVertexDeclaration(WaterElem, &WaterDecl);

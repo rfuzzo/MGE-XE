@@ -91,9 +91,10 @@ void DistantLand::renderStage0() {
                 device->SetTexture(0, texDistantWaterRTX);
 
                 // The plane mesh has position-only vertices; generate world-space
-                // UVs so Remix material replacements have usable texcoords
+                // UVs so Remix material replacements have usable texcoords.
+                // Tiling roughly matches Morrowind's near water texture scale
                 D3DXMatrixInverse(&invView, 0, &mwView);
-                D3DXMatrixScaling(&uvScale, 1.0f / 4096.0f, 1.0f / 4096.0f, 1.0f);
+                D3DXMatrixScaling(&uvScale, 1.0f / 1024.0f, 1.0f / 1024.0f, 1.0f);
                 texgen = invView * uvScale;
                 device->SetTransform(D3DTS_TEXTURE0, &texgen);
                 device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, D3DTSS_TCI_CAMERASPACEPOSITION);
