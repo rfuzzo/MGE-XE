@@ -138,8 +138,17 @@ void DistantLand::renderDistantLandZ() {
 void DistantLand::cullDistantStatics(const D3DXMATRIX* view, const D3DXMATRIX* proj) {
     D3DXMATRIX ds_proj = *proj, ds_viewproj;
     D3DXVECTOR4 viewsphere(eyePos.x, eyePos.y, eyePos.z, 0);
+#ifdef MGE_RTX
+    // Without the shader's near-boundary alpha dissolve, cull distant statics at
+    // the full view range so they don't double-draw over Morrowind's own copies.
+    // Cull by draw distance rather than fog distance; Remix fog does not hide
+    // statics popping in at the fog boundary
+    float zn = nearViewRange, zf = zn;
+    float cullDist = Configuration.DL.DrawDist * kCellSize;
+#else
     float zn = nearViewRange - 768.0f, zf = zn;
     float cullDist = fogEnd;
+#endif
 
     if (Configuration.UseSharedMemory) {
         visDistantShared.RemoveAll();
@@ -210,9 +219,22 @@ void DistantLand::renderDistantLandFF(const D3DXMATRIX* view, const D3DXMATRIX* 
         ipcClient.getVisibleMeshes(visLandSharedId, frustum, viewsphere, VIS_LAND);
     }
 
-    D3DXMatrixIdentity(&world);
+    // Approximate the landBias() height offset from the landscape shader; sink the
+    // low-LOD land mesh so it does not poke through Morrowind's terrain
+    D3DXMatrixTranslation(&world, 0.0f, 0.0f, -30.0f);
     device->SetTransform(D3DTS_WORLD, &world);
     device->SetTexture(0, texWorldColour);
+
+    // The shader instead sinks land progressively towards the camera; replace that
+    // with a clip plane at the near view boundary, where Morrowind's terrain ends.
+    // Clip planes are world-space in the fixed-function pipeline. Remix ignores
+    // clipping for ray tracing, where the -30 offset hides the duplicate land.
+    float clipDist = std::max(0.0f, nearViewRange - 1152.0f);
+    D3DXVECTOR3 clipNormal(eyeVec.x, eyeVec.y, eyeVec.z);
+    D3DXVECTOR3 clipPoint(eyePos.x + eyeVec.x * clipDist, eyePos.y + eyeVec.y * clipDist, eyePos.z + eyeVec.z * clipDist);
+    D3DXPLANE clipPlane(clipNormal.x, clipNormal.y, clipNormal.z, -D3DXVec3Dot(&clipNormal, &clipPoint));
+    device->SetClipPlane(0, clipPlane);
+    device->SetRenderState(D3DRS_CLIPPLANEENABLE, 1);
 
     if (!Configuration.UseSharedMemory) {
         visLand.RemoveAll();
@@ -226,6 +248,8 @@ void DistantLand::renderDistantLandFF(const D3DXMATRIX* view, const D3DXMATRIX* 
     } else {
         visLand.Render(device, SIZEOFLANDVERT);
     }
+
+    device->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
 }
 
 // renderDistantStaticsFF - Draw distant statics with fixed-function calls only

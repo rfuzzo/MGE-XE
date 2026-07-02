@@ -36,5 +36,12 @@ enum RenderDepthID {
     PASS_RENDERGRASSDEPTHINST
 };
 
+#ifdef MGE_RTX
+// RTX builds expand vertices at load time; RTX Remix's geometry processing
+// rejects FLOAT16 positions and SHORT2N texcoords, dropping those draw calls
+static const int SIZEOFSTATICVERT = 28;
+static const int SIZEOFLANDVERT = 20;
+#else
 static const int SIZEOFSTATICVERT = 20;
 static const int SIZEOFLANDVERT = 16;
+#endif
