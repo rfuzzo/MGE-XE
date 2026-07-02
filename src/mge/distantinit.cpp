@@ -172,6 +172,11 @@ static vector<MeshResources> meshCollectionStatics;
 // Water plane vertex declaration
 const D3DVERTEXELEMENT9 WaterElem[] = {
     {0, 0,  D3DDECLTYPE_FLOAT3, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_POSITION, 0},
+#ifdef MGE_RTX
+    // RTX draws a static world-anchored quad; Remix reads texcoords from the
+    // vertex buffer (it ignores fixed-function texgen), so bake world-space UVs
+    {0, 12, D3DDECLTYPE_FLOAT2, D3DDECLMETHOD_DEFAULT, D3DDECLUSAGE_TEXCOORD, 0},
+#endif
     D3DDECL_END()
 };
 
@@ -775,6 +780,50 @@ bool DistantLand::initWater() {
         LOG::logline("!! Failed to create water decl");
         return false;
     }
+
+#ifdef MGE_RTX
+    // RTX uses a single large static quad in world space, at the origin, so that
+    // the geometry never moves as the player walks (avoiding temporal artifacts
+    // under path tracing) and the baked UVs stay anchored to the world instead of
+    // sliding with the camera. Only the height is adjusted per frame via the world
+    // matrix. The near range is covered by Morrowind's own water.
+    numWaterVerts = 4;
+    numWaterTris = 2;
+
+    hr = device->CreateVertexBuffer(numWaterVerts * 20, 0, 0, D3DPOOL_MANAGED, &vbWater, 0);
+    if (hr != D3D_OK) {
+        LOG::logline("!! Failed to create water verts");
+        return false;
+    }
+    hr = device->CreateIndexBuffer(numWaterTris * 3 * 2, 0, D3DFMT_INDEX16, D3DPOOL_MANAGED, &ibWater, 0);
+    if (hr != D3D_OK) {
+        LOG::logline("!! Failed to create water indices");
+        return false;
+    }
+
+    {
+        // World-space extent, large enough to cover Vvardenfell to the horizon
+        const float R = 400000.0f;
+        const float uvScale = 1.0f / 1024.0f;
+        struct WaterVertRTX { float x, y, z, u, v; };
+        WaterVertRTX* wv;
+        vbWater->Lock(0, 0, (void**)&wv, 0);
+        wv[0] = { -R, -R, 0.0f, -R * uvScale, -R * uvScale };
+        wv[1] = {  R, -R, 0.0f,  R * uvScale, -R * uvScale };
+        wv[2] = {  R,  R, 0.0f,  R * uvScale,  R * uvScale };
+        wv[3] = { -R,  R, 0.0f, -R * uvScale,  R * uvScale };
+        vbWater->Unlock();
+
+        USHORT* qi;
+        ibWater->Lock(0, 0, (void**)&qi, 0);
+        qi[0] = 0; qi[1] = 1; qi[2] = 2;
+        qi[3] = 0; qi[4] = 2; qi[5] = 3;
+        ibWater->Unlock();
+    }
+
+    return true;
+#else
+
     hr = device->CreateVertexBuffer(numWaterVerts * 12, 0, 0, D3DPOOL_MANAGED, &vbWater, 0);
     if (hr != D3D_OK) {
         LOG::logline("!! Failed to create water verts");
@@ -852,6 +901,7 @@ bool DistantLand::initWater() {
     }
 
     return true;
+#endif // MGE_RTX
 }
 
 bool DistantLand::initDynamicWaves() {

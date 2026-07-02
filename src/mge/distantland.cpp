@@ -47,7 +47,6 @@ void DistantLand::renderStage0() {
         device->SetVertexShader(nullptr);
         device->SetPixelShader(nullptr);
         device->SetRenderState(D3DRS_LIGHTING, FALSE);
-        device->SetRenderState(D3DRS_FOGENABLE, FALSE);
         device->SetRenderState(D3DRS_ZENABLE, TRUE);
         device->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
         device->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
@@ -65,6 +64,25 @@ void DistantLand::renderStage0() {
         device->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
         device->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
 
+        // Fog. Remix builds its volumetric fog from the fog state of the first
+        // non-sky draw call it sees; MGE swallows Morrowind's fog mode changes, so
+        // the game's near draws never present a usable fog state to Remix. When RTX
+        // Game Fog is enabled, set MGE's weather-driven fog on our own distant land
+        // draws so Remix's fogRemap has a complete, correct fog to work with. Remix
+        // reads only the fog state (not the rasterised result), so the captured
+        // albedo stays unfogged. Otherwise force fog off.
+        if (Configuration.RTXGameFog) {
+            D3DCOLOR fogColour = D3DCOLOR_COLORVALUE(horizonCol.r, horizonCol.g, horizonCol.b, 1.0f);
+            device->SetRenderState(D3DRS_FOGENABLE, TRUE);
+            device->SetRenderState(D3DRS_FOGTABLEMODE, D3DFOG_LINEAR);
+            device->SetRenderState(D3DRS_FOGVERTEXMODE, D3DFOG_NONE);
+            device->SetRenderState(D3DRS_FOGCOLOR, fogColour);
+            device->SetRenderState(D3DRS_FOGSTART, *(DWORD*)&fogStart);
+            device->SetRenderState(D3DRS_FOGEND, *(DWORD*)&fogEnd);
+        } else {
+            device->SetRenderState(D3DRS_FOGENABLE, FALSE);
+        }
+
         if (!mwBridge->IsUnderwater(eyePos.z)) {
             // Draw distant landscape
             if (mwBridge->IsExterior()) {
@@ -80,28 +98,22 @@ void DistantLand::renderStage0() {
                 visDistant.RemoveAll();
             }
 
-            // Draw the distant water plane; Morrowind's own water covers the
-            // near range, so sink this plane slightly below it. Tag the flat
-            // colour texture as water in Remix to get a proper water material
+            // Draw the distant water plane. This is a large static quad in world
+            // space with baked, world-anchored UVs (Remix ignores fixed-function
+            // texgen), so the water texture does not slide as the player moves.
+            // Only its height follows the cell water level, and it is sunk a few
+            // units so Morrowind's own near water wins where the two overlap.
             if (((Configuration.MGEFlags & USE_DISTANT_LAND) || (Configuration.MGEFlags & USE_DISTANT_WATER))
-                    && mwBridge->CellHasWater() && texDistantWaterRTX) {
-                D3DXMATRIX world, invView, uvScale, texgen;
-                D3DXMatrixTranslation(&world, eyePos.x, eyePos.y, mwBridge->WaterLevel() - 2.0f);
+                    && mwBridge->IsExterior() && mwBridge->CellHasWater() && texDistantWaterRTX) {
+                D3DXMATRIX world;
+                D3DXMatrixTranslation(&world, 0.0f, 0.0f, mwBridge->WaterLevel() - 5.0f);
                 device->SetTransform(D3DTS_WORLD, &world);
                 device->SetTexture(0, texDistantWaterRTX);
-
-                // The plane mesh has position-only vertices; generate world-space
-                // UVs so Remix material replacements have usable texcoords.
-                // Tiling roughly matches Morrowind's near water texture scale
-                D3DXMatrixInverse(&invView, 0, &mwView);
-                D3DXMatrixScaling(&uvScale, 1.0f / 1024.0f, 1.0f / 1024.0f, 1.0f);
-                texgen = invView * uvScale;
-                device->SetTransform(D3DTS_TEXTURE0, &texgen);
-                device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, D3DTSS_TCI_CAMERASPACEPOSITION);
-                device->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_COUNT2);
+                device->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+                device->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
 
                 device->SetVertexDeclaration(WaterDecl);
-                device->SetStreamSource(0, vbWater, 0, 12);
+                device->SetStreamSource(0, vbWater, 0, 20);
                 device->SetIndices(ibWater);
                 device->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, numWaterVerts, 0, numWaterTris);
             }
