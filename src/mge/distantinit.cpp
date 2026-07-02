@@ -744,8 +744,9 @@ bool DistantLand::initWater() {
 #ifdef MGE_RTX
     // Texture for the fixed-function distant water plane. Prefer Morrowind's own
     // water surface texture; its content hash matches the near water in Remix, so
-    // one Water category tag covers both and the untagged appearance is consistent
-    texDistantWaterRTX = BSA::loadTexture(device, "water00.tga");
+    // one Water category tag covers both and the untagged appearance is consistent.
+    // The animation frames live in the textures\water subfolder.
+    texDistantWaterRTX = BSA::loadTexture(device, "water\\water00.tga");
     if (texDistantWaterRTX) {
         LOG::logline("-- RTX distant water using Morrowind water surface texture");
     } else {

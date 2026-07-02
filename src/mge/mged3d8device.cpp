@@ -446,9 +446,11 @@ HRESULT _stdcall MGEProxyDevice::SetRenderState(D3DRENDERSTATETYPE a, DWORD b) {
     captureRenderState(a, b);
 
 #ifdef MGE_RTX
-    // Path tracing replaces distance fog; Morrowind's D3D fog state would
-    // otherwise be remapped into Remix volumetrics and mist out the scene
-    if (a == D3DRS_FOGENABLE) {
+    // Path tracing replaces distance fog; by default force Morrowind's fog off so
+    // Remix lights the scene without baked-in mist. When RTX Game Fog is enabled,
+    // let the fog state through so Remix's fogRemap turns MGE's weather-driven fog
+    // into volumetric distance fog that fades distant land.
+    if (a == D3DRS_FOGENABLE && !Configuration.RTXGameFog) {
         b = FALSE;
     }
 #endif

@@ -148,6 +148,13 @@ bool ConfigurationStruct::LoadSettings() {
             }
         }
     }
+
+    // RTX-only options, read directly as they are not part of the MGEXEgui table.
+    // RTX Game Fog routes Morrowind's weather-driven fog into Remix's fogRemap so
+    // distant land fades with distance; default off, as RTX builds otherwise
+    // disable fog to let Remix light the scene without baked-in mist.
+    RTXGameFog = GetPrivateProfileIntA(siniDL, "RTX Game Fog", 0, mgeini) != 0;
+
     return true;
 }
 

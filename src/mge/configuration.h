@@ -108,6 +108,9 @@ struct ConfigurationStruct {
     int WindowAlignX, WindowAlignY;
     bool UseSharedMemory;
 
+    // RTX-only options, read directly from the INI (not exposed in MGEXEgui)
+    bool RTXGameFog;
+
     struct {
         float zoom, zoomRate, zoomRateTarget;
         bool rotateUpdate;
