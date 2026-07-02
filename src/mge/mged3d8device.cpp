@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include "mgeversion.h"
+#include "support/log.h"
 #include "configuration.h"
 #include "distantland.h"
 #include "mwbridge.h"
@@ -210,11 +211,35 @@ HRESULT _stdcall MGEProxyDevice::Present(const RECT* a, const RECT* b, HWND c, c
 HRESULT _stdcall MGEProxyDevice::SetRenderTarget(IDirect3DSurface8* a, IDirect3DSurface8* b) {
 
     if (a) {
+        IDirect3DSurface9* target = static_cast<Direct3DSurface8*>(a)->GetProxyInterface();
         IDirect3DSurface9* back = nullptr;
+        bool isNormal = rendertargetNormal;
+
         if (SUCCEEDED(ProxyInterface->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back)) && back) {
-            rendertargetNormal = (static_cast<Direct3DSurface8*>(a)->GetProxyInterface() == back);
+            isNormal = (target == back);
+
+            if (!isNormal) {
+                // The Remix bridge may return distinct proxy objects for the same
+                // backbuffer, breaking pointer identity; fall back to comparing
+                // surface descriptions to detect Morrowind's offscreen targets
+                D3DSURFACE_DESC targetDesc, backDesc;
+                if (SUCCEEDED(target->GetDesc(&targetDesc)) && SUCCEEDED(back->GetDesc(&backDesc))) {
+                    isNormal = targetDesc.Width == backDesc.Width
+                            && targetDesc.Height == backDesc.Height
+                            && targetDesc.Format == backDesc.Format
+                            && (targetDesc.Usage & D3DUSAGE_RENDERTARGET);
+                }
+            }
+
             back->Release();
         }
+
+#ifdef MGE_RTX
+        if (isNormal != rendertargetNormal) {
+            LOG::logline("RTX: render target tracking -> %s", isNormal ? "backbuffer" : "offscreen");
+        }
+#endif
+        rendertargetNormal = isNormal;
     }
 
     return Direct3DDevice8::SetRenderTarget(a, b);
@@ -287,6 +312,14 @@ HRESULT _stdcall MGEProxyDevice::BeginScene() {
 // EndScene - Multiple scenes per frame, non-alpha / 2x stencil / post-stencil redraw / alpha / 1st person / UI
 // MGE intercepts first scene to draw distant land before it finishes, others it applies shadows to
 HRESULT _stdcall MGEProxyDevice::EndScene() {
+#ifdef MGE_RTX
+    static bool loggedReady = false;
+    if (!loggedReady && DistantLand::ready) {
+        LOG::logline("RTX: distant land ready (rendertargetNormal=%d, sceneCount=%d)", rendertargetNormal ? 1 : 0, sceneCount);
+        loggedReady = true;
+    }
+#endif
+
     if (DistantLand::ready && rendertargetNormal) {
 #ifdef MGE_RTX
         // RTX mode only draws distant geometry; grass/shadow/depth stages, the

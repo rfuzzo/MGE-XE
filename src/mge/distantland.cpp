@@ -6,6 +6,7 @@
 #include "distantshader.h"
 #include "postshaders.h"
 #include "mwbridge.h"
+#include "support/log.h"
 #include "../../../source/d3d8.hpp"
 
 
@@ -83,6 +84,22 @@ void DistantLand::renderStage0() {
         // Restore render state
         stateSaved->Apply();
         stateSaved->Release();
+
+        // Log the first few draws to aid Remix debugging
+        static int logCount = 0;
+        if (logCount < 3) {
+            size_t landCount = Configuration.UseSharedMemory ? visLandShared.Size() : visLand.Size();
+            size_t staticCount = Configuration.UseSharedMemory ? visDistantShared.Size() : visDistant.Size();
+            LOG::logline("RTX: renderStage0 drew %u land meshes, %u distant statics (shared memory = %d)",
+                         (unsigned int)landCount, (unsigned int)staticCount, Configuration.UseSharedMemory ? 1 : 0);
+            ++logCount;
+        }
+    } else {
+        static bool loggedNoCell = false;
+        if (!loggedNoCell) {
+            LOG::logline("RTX: renderStage0 ran without a distant worldspace for the current cell");
+            loggedNoCell = true;
+        }
     }
 
     // Clear stray recordings
